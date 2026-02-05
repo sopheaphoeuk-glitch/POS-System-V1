@@ -2,54 +2,52 @@
 import React, { useState, useMemo } from 'react';
 import { Product, Transaction, TransactionType, TransactionItem, BusinessInfo, UserAccount, UserRole } from '../types';
 import { 
-  Plus, ShoppingCart, Truck, Search, User, Calendar, Trash2, 
+  Plus, ShoppingCart, Truck, Search, User, Calendar, Trash2, Edit2,
   Printer, FileText, CheckCircle2, ChevronRight, X, FileSearch, 
-  Percent, DollarSign, Filter, RotateCcw, ChevronDown, ListFilter, ClipboardList, Clipboard, CheckSquare, Square
+  Percent, DollarSign, Filter, RotateCcw, ChevronDown, ListFilter, ClipboardList, Clipboard, CheckSquare, Square, Clock
 } from 'lucide-react';
-import Invoice from './Invoice';
 
 interface TransactionsProps {
   type: TransactionType;
   products: Product[];
   transactions: Transaction[];
   onAddTransaction: (t: Transaction) => void;
+  onUpdateTransaction?: (t: Transaction) => void;
   onDeleteTransaction?: (id: string) => void;
   currentUser: UserAccount | null;
   businessInfo: BusinessInfo;
+  onShowInvoice: (doc: Transaction | Transaction[]) => void;
+  searchTerm: string;
 }
 
-const Transactions: React.FC<TransactionsProps> = ({ type, products, transactions, onAddTransaction, onDeleteTransaction, currentUser, businessInfo }) => {
+const Transactions: React.FC<TransactionsProps> = ({ type, products, transactions, onAddTransaction, onUpdateTransaction, onDeleteTransaction, currentUser, businessInfo, onShowInvoice, searchTerm }) => {
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  
   const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [currentItems, setCurrentItems] = useState<TransactionItem[]>([]);
   const [partyName, setPartyName] = useState('');
-  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
-  const [selectedInvoices, setSelectedInvoices] = useState<Transaction | Transaction[] | null>(null);
-  const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
   
-  // Selection state for batch printing
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Specific fields for items being added
   const [batchNumber, setBatchNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
 
-  // Specific for Purchase mode
   const [purchaseSubMode, setPurchaseSubMode] = useState<'STOCK_IN' | 'PO'>(type === TransactionType.PURCHASE ? 'STOCK_IN' : 'STOCK_IN');
 
-  // Discount states
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [discountValue, setDiscountValue] = useState<number>(0);
+  const [taxRate, setTaxRate] = useState<number>(0);
 
   const addItem = () => {
     const product = products.find(p => p.id === selectedProduct);
     if (!product) return;
 
-    // Use current product's batch/expiry if user didn't provide new ones for Sale
     const finalBatch = batchNumber || (type === TransactionType.SALE ? product.batchNumber : '');
     const finalExpiry = expiryDate || (type === TransactionType.SALE ? product.expiryDate : '');
 
@@ -76,82 +74,87 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
     setCurrentItems(currentItems.filter(i => !(i.productId === id && i.batchNumber === batch)));
   };
 
-  const setDatePreset = (days: number) => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - days);
-    setEndDate(end.toISOString().split('T')[0]);
-    setStartDate(start.toISOString().split('T')[0]);
-  };
-
-  const handleReset = () => {
-    setHistorySearchTerm('');
-    setStartDate('');
-    setEndDate('');
-  };
-
   const subTotal = currentItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   
   const calculatedDiscountAmount = discountType === 'percentage' 
     ? (subTotal * discountValue) / 100 
     : discountValue;
 
-  const totalAmount = Math.max(0, subTotal - calculatedDiscountAmount);
+  const amountAfterDiscount = subTotal - calculatedDiscountAmount;
+  const taxAmount = (amountAfterDiscount * taxRate) / 100;
+  const totalAmount = Math.max(0, amountAfterDiscount + taxAmount);
 
   const handleFinalize = () => {
     if (currentItems.length === 0) return;
 
-    const nextNum = (transactions.length + 1).toString().padStart(7, '0');
-    
     let actualType = type;
-    let idPrefix = type === TransactionType.SALE ? 'SL' : 'PR';
     let initialStatus: Transaction['status'] = undefined;
 
     if (type === TransactionType.PURCHASE && purchaseSubMode === 'PO') {
         actualType = TransactionType.PURCHASE_ORDER;
-        idPrefix = 'PO';
         initialStatus = 'Pending';
     }
 
-    const newId = `${idPrefix}-${nextNum}`;
-
-    const newTransaction: Transaction = {
-      id: newId,
+    const transactionData: Transaction = {
+      id: editingId || `${type === TransactionType.SALE ? 'IVN' : 'PR'}-${(transactions.length + 1).toString().padStart(7, '0')}`,
       type: actualType,
       status: initialStatus,
       date: new Date().toISOString(),
+      dueDate: dueDate || undefined,
       items: currentItems,
       subTotal,
       discountType,
       discountValue,
       discountAmount: calculatedDiscountAmount,
+      taxRate,
+      taxAmount,
       totalAmount,
-      customerOrSupplierName: partyName || (type === TransactionType.SALE ? 'អតិថិជន' : 'អ្នកផ្គត់ផ្គង់ទូទៅ')
+      customerOrSupplierName: partyName || (type === TransactionType.SALE ? 'អតិថិជនទូទៅ' : 'អ្នកផ្គត់ផ្គង់ទូទៅ')
     };
 
-    onAddTransaction(newTransaction);
+    if (editingId && onUpdateTransaction) {
+        onUpdateTransaction(transactionData);
+    } else {
+        onAddTransaction(transactionData);
+    }
+
+    closeForm();
+    onShowInvoice(transactionData);
+  };
+
+  const handleEdit = (t: Transaction) => {
+    setEditingId(t.id);
+    setPartyName(t.customerOrSupplierName);
+    setDueDate(t.dueDate || '');
+    setCurrentItems(t.items);
+    setDiscountType(t.discountType || 'percentage');
+    setDiscountValue(t.discountValue || 0);
+    setTaxRate(t.taxRate || 0);
+    setPurchaseSubMode(t.type === TransactionType.PURCHASE_ORDER ? 'PO' : 'STOCK_IN');
+    setIsFormOpen(true);
+  };
+
+  const closeForm = () => {
     setIsFormOpen(false);
+    setEditingId(null);
     setCurrentItems([]);
     setPartyName('');
     setDiscountValue(0);
-    
-    // Auto-open print preview for Sales and POs
-    if (type === TransactionType.SALE || actualType === TransactionType.PURCHASE_ORDER) {
-      setSelectedInvoices(newTransaction);
-      setIsInvoiceOpen(true);
-    }
+    setTaxRate(0);
+    setDueDate('');
+    setSelectedProduct('');
   };
 
   const filteredHistory = useMemo(() => {
     return transactions.filter(t => {
-      // Basic type filter (only relevant for Purchase tab where we show both PO and Entry)
       if (type === TransactionType.PURCHASE) {
         if (purchaseSubMode === 'STOCK_IN' && t.type !== TransactionType.PURCHASE) return false;
         if (purchaseSubMode === 'PO' && t.type !== TransactionType.PURCHASE_ORDER) return false;
       }
 
-      const matchesSearch = t.customerOrSupplierName.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
-                            t.id.toLowerCase().includes(historySearchTerm.toLowerCase());
+      const matchesSearch = t.customerOrSupplierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            t.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            t.items.some(item => item.productName.toLowerCase().includes(searchTerm.toLowerCase()));
       
       let matchesDate = true;
       const itemDate = new Date(t.date);
@@ -168,7 +171,7 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
 
       return matchesSearch && matchesDate;
     });
-  }, [transactions, historySearchTerm, startDate, endDate, purchaseSubMode, type]);
+  }, [transactions, searchTerm, startDate, endDate, purchaseSubMode, type]);
 
   const toggleSelection = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -177,19 +180,10 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
     setSelectedIds(newSelected);
   };
 
-  const toggleAllSelection = () => {
-    if (selectedIds.size === filteredHistory.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredHistory.map(t => t.id)));
-    }
-  };
-
   const handleBatchPrint = () => {
     const selectedTransactions = filteredHistory.filter(t => selectedIds.has(t.id));
     if (selectedTransactions.length === 0) return;
-    setSelectedInvoices(selectedTransactions);
-    setIsInvoiceOpen(true);
+    onShowInvoice(selectedTransactions);
   };
 
   const activeTypeName = type === TransactionType.SALE ? 'លក់ចេញ' : (purchaseSubMode === 'PO' ? 'បញ្ជាទិញ' : 'ទិញចូល');
@@ -201,7 +195,7 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
           <h2 className="text-2xl font-bold text-slate-800">
             {type === TransactionType.SALE ? 'លក់ចេញ (Sales & Invoices)' : 'ទិញចូល និងបញ្ជាទិញ (Purchases & PO)'}
           </h2>
-          <p className="text-slate-500">
+          <p className="text-slate-500 text-sm">
             {type === TransactionType.SALE 
                 ? 'គ្រប់គ្រងការលក់ និងចេញវិក័យបត្រជូនអតិថិជន' 
                 : 'គ្រប់គ្រងការទិញទំនិញចូលស្តុក ឬបង្កើតបញ្ជាទិញ (PO)'}
@@ -261,16 +255,6 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                     )}
                 </div>
                 <div className="flex items-center gap-2 flex-1 max-w-xl">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input 
-                      type="text" 
-                      placeholder="ស្វែងរកតាមឈ្មោះ ឬ ID..."
-                      value={historySearchTerm}
-                      onChange={(e) => setHistorySearchTerm(e.target.value)}
-                      className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                    />
-                  </div>
                   <button 
                     onClick={() => setShowFilters(!showFilters)}
                     className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border ${
@@ -281,16 +265,7 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                   >
                     <Filter className="w-4 h-4" />
                     តម្រង
-                    <ChevronDown className={`w-3 h-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
                   </button>
-                  {(historySearchTerm || startDate || endDate) && (
-                    <button 
-                      onClick={handleReset}
-                      className="p-3 bg-slate-100 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -317,28 +292,12 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setDatePreset(0)} className="px-3 py-1.5 bg-slate-100 rounded-lg text-[10px] font-black text-slate-600 hover:bg-blue-600 hover:text-white transition-all">ថ្ងៃនេះ</button>
-                    <button onClick={() => setDatePreset(7)} className="px-3 py-1.5 bg-slate-100 rounded-lg text-[10px] font-black text-slate-600 hover:bg-blue-600 hover:text-white transition-all">៧ ថ្ងៃ</button>
-                    <button onClick={() => setDatePreset(30)} className="px-3 py-1.5 bg-slate-100 rounded-lg text-[10px] font-black text-slate-600 hover:bg-blue-600 hover:text-white transition-all">៣០ ថ្ងៃ</button>
+                    <button onClick={() => { setStartDate(''); setEndDate(''); }} className="p-3 bg-slate-100 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all">
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               )}
-
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                    <ListFilter className="w-3 h-3" />
-                    រកឃើញ: <span className="text-blue-600">{filteredHistory.length} ប្រតិបត្តិការ</span>
-                </div>
-                {filteredHistory.length > 0 && (
-                    <button 
-                        onClick={toggleAllSelection}
-                        className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center gap-1"
-                    >
-                        {selectedIds.size === filteredHistory.length ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
-                        {selectedIds.size === filteredHistory.length ? 'ដកជម្រើសទាំងអស់' : 'ជ្រើសយកទាំងអស់'}
-                    </button>
-                )}
-              </div>
             </div>
 
             <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto custom-scrollbar">
@@ -363,21 +322,13 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                         {t.customerOrSupplierName}
                         <span className="text-[9px] bg-white border border-slate-100 px-1 py-0.5 rounded text-slate-400 uppercase tracking-tighter">#{t.id}</span>
                       </p>
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-medium">
+                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-medium font-content">
                         <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(t.date).toLocaleDateString('km-KH')}</span>
+                        {t.dueDate && (
+                           <span className="flex items-center gap-1 text-red-500"><Clock className="w-3 h-3" /> Due: {new Date(t.dueDate).toLocaleDateString('km-KH')}</span>
+                        )}
                         <span>•</span>
                         <span className="text-blue-500 font-bold">{t.items.length} មុខទំនិញ</span>
-                        {t.type === TransactionType.PURCHASE_ORDER && (
-                            <span className="bg-indigo-50 text-indigo-500 px-2 rounded-lg text-[8px] font-black uppercase">PO Only</span>
-                        )}
-                        {t.status && (
-                            <span className={`px-2 rounded-lg text-[8px] font-black uppercase ${
-                                t.status === 'Pending' ? 'bg-orange-50 text-orange-600' :
-                                t.status === 'Received' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
-                            }`}>
-                                {t.status}
-                            </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -386,33 +337,43 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                       <p className="text-sm font-black text-slate-900">${t.totalAmount.toFixed(2)}</p>
                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{t.type === TransactionType.PURCHASE_ORDER ? 'Draft Order' : 'Paid Full'}</p>
                     </div>
+                    
                     <div className="flex items-center gap-1">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setSelectedInvoices(t); setIsInvoiceOpen(true); }}
-                        className="flex items-center gap-2 px-3 py-2 bg-white text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all font-bold text-xs border border-blue-100 shadow-sm"
-                      >
-                        <Printer className="w-4 h-4" />
-                        <span className="hidden md:inline text-[10px]">បោះពុម្ព</span>
-                      </button>
-                      
-                      {/* Admin-only Delete Button */}
-                      {currentUser?.role === UserRole.ADMIN && onDeleteTransaction && (
                         <button 
-                          onClick={(e) => { e.stopPropagation(); onDeleteTransaction(t.id); }}
-                          className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
-                          title="លុបប្រតិបត្តិការ"
+                          onClick={(e) => { e.stopPropagation(); onShowInvoice(t); }}
+                          className="flex items-center gap-2 px-3 py-2 bg-white text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all font-bold text-xs border border-blue-100 shadow-sm"
+                          title="បោះពុម្ព"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Printer className="w-4 h-4" />
                         </button>
-                      )}
+                        
+                        {currentUser?.role === UserRole.ADMIN && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
+                            className="p-2.5 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                            title="កែប្រែ"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {currentUser?.role === UserRole.ADMIN && onDeleteTransaction && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); onDeleteTransaction(t.id); }}
+                            className="p-2.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
+                            title="លុបប្រតិបត្តិការ"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                     </div>
                   </div>
                 </div>
               ))}
               {filteredHistory.length === 0 && (
-                <div className="p-20 text-center flex flex-col items-center justify-center text-slate-400">
-                   <FileSearch className="w-12 h-12 mb-4 opacity-20" />
-                   <p className="font-bold uppercase tracking-[0.2em] text-[10px]">មិនមានទិន្នន័យត្រូវបានរកឃើញ</p>
+                <div className="p-20 text-center opacity-20">
+                    <FileSearch className="w-12 h-12 mx-auto mb-4" />
+                    <p className="text-xs font-black uppercase tracking-widest">មិនមានប្រតិបត្តិការ</p>
                 </div>
               )}
             </div>
@@ -425,54 +386,13 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                 ? 'bg-gradient-to-br from-green-500 to-emerald-700 shadow-green-100' 
                 : (purchaseSubMode === 'PO' ? 'bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-indigo-100' : 'bg-gradient-to-br from-blue-600 to-indigo-700 shadow-blue-100')
             }`}>
-            <h4 className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">សរុបការ{activeTypeName}</h4>
+            <h4 className="text-white/70 text-[10px] font-bold uppercase tracking-widest mb-1">សរុបការ{activeTypeName}</h4>
             <p className="text-4xl font-black mb-6 tracking-tighter">${transactions.filter(t => {
                 if (type === TransactionType.PURCHASE) {
                     return purchaseSubMode === 'STOCK_IN' ? t.type === TransactionType.PURCHASE : t.type === TransactionType.PURCHASE_ORDER;
                 }
                 return t.type === TransactionType.SALE;
             }).reduce((a, b) => a + b.totalAmount, 0).toFixed(2)}</p>
-            <div className="flex items-center justify-between pt-6 border-t border-white/20">
-              <div>
-                <p className="text-[10px] text-white/60 font-bold uppercase">ចំនួន{purchaseSubMode === 'PO' ? 'បញ្ជាទិញ' : 'វិក័យបត្រ'}</p>
-                <p className="text-xl font-black">{transactions.filter(t => {
-                if (type === TransactionType.PURCHASE) {
-                    return purchaseSubMode === 'STOCK_IN' ? t.type === TransactionType.PURCHASE : t.type === TransactionType.PURCHASE_ORDER;
-                }
-                return t.type === TransactionType.SALE;
-            }).length}</p>
-              </div>
-              <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-sm border border-white/10">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">ព័ត៌មានបន្ថែម</h4>
-             <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                      <Printer className="w-4 h-4" />
-                   </div>
-                   <p className="text-xs font-medium text-slate-600 leading-relaxed">ចុចលើប៊ូតុង <span className="text-blue-600 font-bold">បោះពុម្ព</span> ដើម្បីមើលវិក្កយបត្រ ឬបញ្ជាទិញឡើងវិញ។</p>
-                </div>
-                {purchaseSubMode === 'PO' ? (
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                            <ClipboardList className="w-4 h-4" />
-                        </div>
-                        <p className="text-xs font-medium text-slate-600 leading-relaxed">បញ្ជាទិញ (PO) <span className="text-indigo-600 font-bold">មិនមានការកើនឡើងស្តុកទេ</span> រហូតដល់ទំនិញត្រូវបានបញ្ចូលជាផ្លូវការ។</p>
-                    </div>
-                ) : (
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center text-green-600">
-                            <CheckCircle2 className="w-4 h-4" />
-                        </div>
-                        <p className="text-xs font-medium text-slate-600 leading-relaxed">រាល់ការ{type === TransactionType.SALE ? 'លក់ចេញ' : 'ទិញចូល'} នឹងធ្វើការកាត់ ឬបន្ថែមក្នងស្តុកដោយស្វ័យប្រវត្តិ។</p>
-                    </div>
-                )}
-             </div>
           </div>
         </div>
       </div>
@@ -489,85 +409,63 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                   </div>
                   <div>
                       <h3 className="text-xl font-black text-slate-800 tracking-tight">
-                        {type === TransactionType.SALE ? 'បង្កើតវិក័យបត្រលក់ថ្មី' : (purchaseSubMode === 'PO' ? 'បង្កើតបញ្ជាទិញ (PO)' : 'កត់ត្រាការទិញទំនិញចូល')}
+                        {editingId ? 'កែប្រែវិក័យបត្រ' : (type === TransactionType.SALE ? 'បង្កើតវិក័យបត្រលក់ថ្មី' : (purchaseSubMode === 'PO' ? 'បង្កើតបញ្ជាទិញ (PO)' : 'កត់ត្រាការទិញទំនិញចូល'))}
                       </h3>
-                      <p className={`text-[10px] font-black uppercase tracking-widest ${type === TransactionType.SALE ? 'text-green-600' : 'text-blue-600'}`}>
-                          {type === TransactionType.SALE ? 'New Sales Invoice' : (purchaseSubMode === 'PO' ? 'New Purchase Order Document' : 'New Stock Receipt')}
-                      </p>
                   </div>
               </div>
-              <button onClick={() => setIsFormOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors">
+              <button onClick={closeForm} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-              <div className="w-full md:w-1/2 p-6 border-r border-slate-100 overflow-y-auto space-y-6">
-                <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                    {type === TransactionType.SALE ? 'ឈ្មោះអតិថិជន / Customer' : 'ឈ្មោះអ្នកផ្គត់ផ្គង់ / Supplier'}
-                  </label>
-                  <div className="relative">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input 
-                      type="text" 
-                      value={partyName}
-                      onChange={(e) => setPartyName(e.target.value)}
-                      placeholder={type === TransactionType.SALE ? 'ឧ. អតិថិជនទូទៅ' : 'ឧ. ក្រុមហ៊ុនចែកចាយ'}
-                      className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
-                    />
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row font-content">
+              <div className="w-full md:w-1/2 p-6 border-r border-slate-100 overflow-y-auto space-y-6 custom-scrollbar">
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                      {type === TransactionType.SALE ? 'ឈ្មោះអតិថិជន / Customer' : 'ឈ្មោះអ្នកផ្គត់ផ្គង់ / Supplier'}
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="text" 
+                        value={partyName}
+                        onChange={(e) => setPartyName(e.target.value)}
+                        placeholder={type === TransactionType.SALE ? 'ឧ. អតិថិជនទូទៅ' : 'ឧ. ក្រុមហ៊ុនចែកចាយ'}
+                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">ថ្ងៃកំណត់បង់ប្រាក់ (Due Date)</label>
+                    <div className="relative">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="date" 
+                        value={dueDate}
+                        onChange={(e) => setDueDate(e.target.value)}
+                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 <div className={`p-5 rounded-2xl border space-y-4 ${type === TransactionType.SALE ? 'bg-green-50/50 border-green-100' : 'bg-blue-50/50 border-blue-100'}`}>
                   <h4 className={`text-sm font-black uppercase tracking-wider ${type === TransactionType.SALE ? 'text-green-800' : 'text-blue-800'}`}>ជ្រើសរើសទំនិញ</h4>
                   <div>
-                    <label className={`block text-[10px] font-bold mb-1.5 uppercase ${type === TransactionType.SALE ? 'text-green-400' : 'text-blue-400'}`}>ស្វែងរកទំនិញក្នុងស្តុក</label>
                     <select 
                       value={selectedProduct}
-                      onChange={(e) => {
-                          const id = e.target.value;
-                          setSelectedProduct(id);
-                          const p = products.find(prod => prod.id === id);
-                          if (p && type === TransactionType.SALE) {
-                              setBatchNumber(p.batchNumber || '');
-                              setExpiryDate(p.expiryDate || '');
-                          }
-                      }}
+                      onChange={(e) => setSelectedProduct(e.target.value)}
                       className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm"
                     >
                       <option value="">-- រើសទំនិញ --</option>
                       {products.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} (នៅសល់: {p.stock} {p.unit})</option>
+                        <option key={p.id} value={p.id}>{p.name} (ស្តុក: {p.stock})</option>
                       ))}
                     </select>
                   </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className={`block text-[10px] font-bold mb-1.5 uppercase ${type === TransactionType.SALE ? 'text-green-400' : 'text-blue-400'}`}>លេខឡូតិ៍ (Batch #)</label>
-                        <input 
-                          type="text" 
-                          value={batchNumber}
-                          onChange={(e) => setBatchNumber(e.target.value)}
-                          placeholder="Batch Number"
-                          className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className={`block text-[10px] font-bold mb-1.5 uppercase ${type === TransactionType.SALE ? 'text-green-400' : 'text-blue-400'}`}>ថ្ងៃផុតកំណត់ (Expiry)</label>
-                        <input 
-                          type="date" 
-                          value={expiryDate}
-                          onChange={(e) => setExpiryDate(e.target.value)}
-                          className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm"
-                        />
-                      </div>
-                  </div>
-
                   <div className="flex gap-4">
                     <div className="flex-1">
-                      <label className={`block text-[10px] font-bold mb-1.5 uppercase ${type === TransactionType.SALE ? 'text-green-400' : 'text-blue-400'}`}>ចំនួន</label>
                       <input 
                         type="number" 
                         min="1"
@@ -576,101 +474,78 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                         className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-black text-center"
                       />
                     </div>
-                    <div className="flex items-end">
-                      <button 
-                        onClick={addItem}
-                        disabled={!selectedProduct}
-                        className={`px-8 py-3 text-white rounded-xl font-bold disabled:opacity-50 transition-all flex items-center gap-2 shadow-lg active:scale-95 ${
-                            type === TransactionType.SALE ? 'bg-green-600 shadow-green-100 hover:bg-green-700' : 'bg-blue-600 shadow-blue-100 hover:bg-blue-700'
-                        }`}
-                      >
-                        <Plus className="w-4 h-4" /> បញ្ចូល
-                      </button>
-                    </div>
+                    <button 
+                      onClick={addItem}
+                      disabled={!selectedProduct}
+                      className={`px-8 py-3 text-white rounded-xl font-bold disabled:opacity-50 transition-all flex items-center gap-2 shadow-lg active:scale-95 ${
+                          type === TransactionType.SALE ? 'bg-green-600 shadow-green-100 hover:bg-green-700' : 'bg-blue-600 shadow-blue-100 hover:bg-blue-700'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4" /> បញ្ចូល
+                    </button>
                   </div>
                 </div>
               </div>
 
               <div className="w-full md:w-1/2 p-6 bg-slate-50/50 flex flex-col h-full overflow-hidden">
-                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center justify-between">
-                  <span>បញ្ជីរាយមុខទំនិញ</span> 
-                  <span className={`bg-white px-2 py-0.5 rounded-lg border border-slate-200 font-black text-[10px] ${type === TransactionType.SALE ? 'text-green-600' : 'text-blue-600'}`}>{currentItems.length} មុខ</span>
-                </h4>
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">បញ្ជីរាយមុខទំនិញ</h4>
                 <div className="flex-1 overflow-y-auto space-y-2 mb-4 pr-2 custom-scrollbar">
                   {currentItems.map((item, idx) => (
-                    <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between group shadow-sm transition-all hover:border-blue-300">
+                    <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between group shadow-sm">
                       <div className="flex-1">
                         <p className="text-sm font-bold text-slate-800">{item.productName}</p>
                         <p className="text-xs font-bold text-slate-400 mt-0.5">{item.quantity} x ${item.price.toFixed(2)}</p>
-                        {(item.batchNumber || item.expiryDate) && (
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            {item.batchNumber && <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-black">L: {item.batchNumber}</span>}
-                            {item.expiryDate && <span className="text-[9px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded font-black">EXP: {item.expiryDate}</span>}
-                          </div>
-                        )}
                       </div>
                       <div className="text-right flex items-center gap-4">
-                        <span className={`text-sm font-black ${type === TransactionType.SALE ? 'text-green-600' : 'text-blue-600'}`}>${(item.price * item.quantity).toFixed(2)}</span>
-                        <button 
-                          onClick={() => removeItem(item.productId, item.batchNumber)}
-                          className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <span className="text-sm font-black text-slate-900 font-mono">${(item.price * item.quantity).toFixed(2)}</span>
+                        <button onClick={() => removeItem(item.productId)} className="p-2 text-slate-300 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </div>
                   ))}
-                  {currentItems.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60 py-12">
-                      <ShoppingCart className="w-16 h-16 mb-3" />
-                      <p className="font-bold uppercase text-[10px] tracking-widest">មិនទាន់មានទំនិញក្នុងបញ្ជី</p>
-                    </div>
-                  )}
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-slate-200">
-                  {/* Discount Section */}
-                  <div className="bg-white p-4 rounded-2xl border border-slate-100 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">បញ្ចុះតម្លៃ (Discount)</span>
-                        <div className="flex bg-slate-100 p-1 rounded-lg">
-                            <button 
-                                onClick={() => setDiscountType('percentage')}
-                                className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${discountType === 'percentage' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
-                            >
-                                <Percent className="w-3 h-3 inline mr-1" /> %
-                            </button>
-                            <button 
-                                onClick={() => setDiscountType('fixed')}
-                                className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${discountType === 'fixed' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
-                            >
-                                <DollarSign className="w-3 h-3 inline mr-1" /> $
-                            </button>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white p-3 rounded-2xl border border-slate-100 space-y-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">បញ្ចុះតម្លៃ</span>
+                        <div className="flex items-center gap-2">
+                          <input 
+                              type="number" 
+                              value={discountValue}
+                              onChange={(e) => setDiscountValue(Number(e.target.value))}
+                              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-right font-bold text-sm"
+                          />
+                          <select value={discountType} onChange={(e) => setDiscountType(e.target.value as any)} className="bg-slate-100 text-[10px] font-black rounded-lg p-1 outline-none">
+                            <option value="percentage">%</option>
+                            <option value="fixed">$</option>
+                          </select>
                         </div>
                     </div>
-                    <div className="relative">
+                    <div className="bg-white p-3 rounded-2xl border border-slate-100 space-y-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ពន្ធ (%) (Tax)</span>
                         <input 
                             type="number" 
-                            min="0"
-                            value={discountValue}
-                            onChange={(e) => setDiscountValue(Number(e.target.value))}
-                            placeholder={discountType === 'percentage' ? 'បញ្ជាក់ភាគរយ...' : 'បញ្ជាក់ទឹកប្រាក់...'}
-                            className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-right font-bold text-sm"
+                            value={taxRate}
+                            onChange={(e) => setTaxRate(Number(e.target.value))}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-right font-bold text-sm"
                         />
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase">
-                            Value
-                        </div>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between px-1">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">សរុបដើម:</span>
-                        <span className="text-sm font-bold text-slate-600">${subTotal.toFixed(2)}</span>
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase px-1">
+                        <span>សរុបដើម:</span>
+                        <span className="font-mono text-slate-600">${subTotal.toFixed(2)}</span>
                     </div>
+                    {taxAmount > 0 && (
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase px-1">
+                          <span>ពន្ធ ({taxRate}%):</span>
+                          <span className="font-mono text-slate-600">${taxAmount.toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-slate-500 uppercase tracking-widest">សរុបចុងក្រោយ:</span>
-                        <span className="text-3xl font-black text-slate-900 tracking-tighter">${totalAmount.toFixed(2)}</span>
+                        <span className="text-sm font-black text-slate-700 uppercase tracking-widest">សរុបរួម:</span>
+                        <span className="text-3xl font-black text-slate-900 tracking-tighter font-mono">${totalAmount.toFixed(2)}</span>
                     </div>
                   </div>
 
@@ -683,9 +558,7 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
                       : (purchaseSubMode === 'PO' ? 'bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700' : 'bg-blue-600 text-white shadow-blue-100 hover:bg-blue-700')
                     } disabled:opacity-50`}
                   >
-                    {type === TransactionType.SALE 
-                        ? 'រក្សាទុក និងចេញវិក័យបត្រ' 
-                        : (purchaseSubMode === 'PO' ? 'ចេញបញ្ជាទិញ (PO)' : 'រក្សាទុកការទិញចូល')}
+                    {editingId ? 'រក្សាទុកការកែប្រែ' : 'រក្សាទុក និងចេញវិក័យបត្រ'}
                     <ChevronRight className="w-5 h-5" />
                   </button>
                 </div>
@@ -693,14 +566,6 @@ const Transactions: React.FC<TransactionsProps> = ({ type, products, transaction
             </div>
           </div>
         </div>
-      )}
-
-      {isInvoiceOpen && selectedInvoices && (
-        <Invoice 
-          transactions={selectedInvoices} 
-          onClose={() => setIsInvoiceOpen(false)} 
-          businessInfo={businessInfo}
-        />
       )}
     </div>
   );

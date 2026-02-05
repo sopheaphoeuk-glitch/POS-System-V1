@@ -1,14 +1,18 @@
 
-import React, { useState } from 'react';
-import { Product, Transaction, TransactionType, TransactionItem, UserAccount, UserRole } from '../types';
-import { Plus, ClipboardX, Search, MessageSquare, Calendar, Trash2, CheckCircle2, ChevronRight, X, AlertCircle, Clipboard } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Product, Transaction, TransactionType, TransactionItem, UserAccount, UserRole, BusinessInfo } from '../types';
+import { Plus, ClipboardX, Search, MessageSquare, Calendar, Trash2, Edit2, CheckCircle2, ChevronRight, X, AlertCircle, Clipboard, Printer, Filter, RotateCcw } from 'lucide-react';
 
 interface OtherStockOutProps {
   products: Product[];
   transactions: Transaction[];
   onAddTransaction: (t: Transaction) => void;
+  onUpdateTransaction?: (t: Transaction) => void;
   onDeleteTransaction?: (id: string) => void;
   currentUser: UserAccount | null;
+  businessInfo: BusinessInfo;
+  onShowInvoice: (doc: Transaction) => void;
+  searchTerm: string;
 }
 
 const PREDEFINED_REASONS = [
@@ -20,15 +24,19 @@ const PREDEFINED_REASONS = [
   'ផ្សេងៗ (Other...)'
 ];
 
-const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, onAddTransaction, onDeleteTransaction, currentUser }) => {
+const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, onAddTransaction, onUpdateTransaction, onDeleteTransaction, currentUser, businessInfo, onShowInvoice, searchTerm }) => {
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  
   const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [currentItems, setCurrentItems] = useState<TransactionItem[]>([]);
   const [selectedReason, setSelectedReason] = useState(PREDEFINED_REASONS[0]);
   const [customReason, setCustomReason] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   
-  // New fields
   const [batchNumber, setBatchNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
 
@@ -36,7 +44,6 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
     const product = products.find(p => p.id === selectedProduct);
     if (!product) return;
 
-    // Default to product's current batch if not specified
     const finalBatch = batchNumber || product.batchNumber || '';
     const finalExpiry = expiryDate || product.expiryDate || '';
 
@@ -72,11 +79,8 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
       return;
     }
 
-    const nextNum = (Date.now()).toString().slice(-7);
-    const newId = `ADJ-${nextNum}`;
-
-    const newTransaction: Transaction = {
-      id: newId,
+    const transactionData: Transaction = {
+      id: editingId || `ADJ-${(Date.now()).toString().slice(-7)}`,
       type: TransactionType.OTHER_OUT,
       date: new Date().toISOString(),
       items: currentItems,
@@ -87,12 +91,59 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
       note: finalReason
     };
 
-    onAddTransaction(newTransaction);
+    if (editingId && onUpdateTransaction) {
+        onUpdateTransaction(transactionData);
+    } else {
+        onAddTransaction(transactionData);
+    }
+    
+    closeForm();
+    onShowInvoice(transactionData);
+  };
+
+  const handleEdit = (t: Transaction) => {
+    setEditingId(t.id);
+    setCurrentItems(t.items);
+    if (PREDEFINED_REASONS.includes(t.note || '')) {
+        setSelectedReason(t.note || '');
+    } else {
+        setSelectedReason('ផ្សេងៗ (Other...)');
+        setCustomReason(t.note || '');
+    }
+    setIsFormOpen(true);
+  };
+
+  const closeForm = () => {
     setIsFormOpen(false);
+    setEditingId(null);
     setCurrentItems([]);
     setSelectedReason(PREDEFINED_REASONS[0]);
     setCustomReason('');
+    setSelectedProduct('');
   };
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      const matchesSearch = (t.note?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             t.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                             t.items.some(item => item.productName.toLowerCase().includes(searchTerm.toLowerCase())));
+      
+      let matchesDate = true;
+      const itemDate = new Date(t.date);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        if (itemDate < start) matchesDate = false;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        if (itemDate > end) matchesDate = false;
+      }
+
+      return matchesSearch && matchesDate;
+    });
+  }, [transactions, searchTerm, startDate, endDate]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -111,14 +162,63 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
       </div>
 
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-5 bg-slate-50/50 border-b border-slate-100">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2 text-xs uppercase tracking-widest">
-            <Calendar className="w-4 h-4 text-orange-500" />
-            ប្រវត្តិនៃការកាត់ស្តុកផ្សេងៗ
-          </h3>
+        <div className="p-5 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-xs uppercase tracking-widest">
+              <Calendar className="w-4 h-4 text-orange-500" />
+              ប្រវត្តិនៃការកាត់ស្តុកផ្សេងៗ
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border ${
+                showFilters || startDate || endDate 
+                ? 'bg-orange-600 text-white border-orange-600 shadow-lg shadow-orange-100' 
+                : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              តម្រង
+            </button>
+            {(startDate || endDate) && (
+              <button 
+                onClick={() => { setStartDate(''); setEndDate(''); }}
+                className="p-3 bg-slate-100 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
+
+        {showFilters && (
+          <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 animate-in slide-in-from-top-2 duration-300">
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ចាប់ពី:</label>
+                <input 
+                  type="date" 
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-orange-500 outline-none font-bold"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ដល់:</label>
+                <input 
+                  type="date" 
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-orange-500 outline-none font-bold"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto custom-scrollbar">
-          {transactions.map((t) => (
+          {filteredTransactions.map((t) => (
             <div key={t.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100 shadow-sm transition-transform group-hover:scale-105">
@@ -135,13 +235,26 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-6">
-                <div className="text-right">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ប្រតិបត្តិករ</p>
-                  <p className="text-sm font-bold text-slate-700">{t.createdBy || 'រដ្ឋបាល'}</p>
-                </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => onShowInvoice(t)}
+                  className="flex items-center gap-2 px-3 py-2 bg-white text-orange-600 rounded-xl hover:bg-orange-600 hover:text-white transition-all font-bold text-xs border border-orange-100 shadow-sm"
+                  title="បោះពុម្ព"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span className="hidden md:inline text-[10px]">បោះពុម្ព</span>
+                </button>
                 
-                {/* Admin-only Delete Button */}
+                {currentUser?.role === UserRole.ADMIN && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
+                    className="p-2.5 text-slate-300 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all"
+                    title="កែប្រែ"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                )}
+
                 {currentUser?.role === UserRole.ADMIN && onDeleteTransaction && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDeleteTransaction(t.id); }}
@@ -154,7 +267,7 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
               </div>
             </div>
           ))}
-          {transactions.length === 0 && (
+          {filteredTransactions.length === 0 && (
             <div className="p-24 text-center">
               <div className="flex flex-col items-center justify-center opacity-20">
                 <ClipboardX className="w-16 h-16 mb-4 text-slate-400" />
@@ -174,11 +287,13 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
                    <ClipboardX className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-slate-800 tracking-tight">ទម្រង់កែតម្រូវស្តុក</h3>
+                  <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                    {editingId ? 'កែប្រែការកាត់ស្តុក' : 'ទម្រង់កែតម្រូវស្តុក'}
+                  </h3>
                   <p className="text-xs font-bold text-orange-600 uppercase tracking-widest">Inventory Adjustment</p>
                 </div>
               </div>
-              <button onClick={() => setIsFormOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
+              <button onClick={closeForm} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors shadow-sm">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -334,7 +449,7 @@ const OtherStockOut: React.FC<OtherStockOutProps> = ({ products, transactions, o
                     disabled={currentItems.length === 0}
                     className="w-full py-4 rounded-2xl font-black text-lg bg-orange-600 text-white shadow-xl shadow-orange-100 hover:bg-orange-700 disabled:opacity-50 transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
                   >
-                    បញ្ជាក់ការកាត់ស្តុក
+                    {editingId ? 'រក្សាទុកការកែប្រែ' : 'បញ្ជាក់ការកាត់ស្តុក'}
                     <CheckCircle2 className="w-6 h-6" />
                   </button>
                 </div>

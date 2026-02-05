@@ -61,11 +61,14 @@ export interface Transaction {
   type: TransactionType;
   status?: 'Pending' | 'Received' | 'Cancelled'; // ស្ថានភាពសម្រាប់ Purchase Orders
   date: string; // ISO string
+  dueDate?: string; // ថ្ងៃកំណត់បង់ប្រាក់
   items: TransactionItem[];
   subTotal: number; // តម្លៃសរុបមុនបញ្ចុះតម្លៃ
   discountType?: 'percentage' | 'fixed'; // ប្រភេទបញ្ចុះតម្លៃ
   discountValue?: number; // តម្លៃលេខដែលបញ្ជាក់ (ឧ. 10 សម្រាប់ 10%)
   discountAmount: number; // ចំនួនទឹកប្រាក់ដែលបានបញ្ចុះសរុប
+  taxRate?: number; // អត្រាពន្ធ (%)
+  taxAmount?: number; // ចំនួនទឹកប្រាក់ពន្ធសរុប
   totalAmount: number; // តម្លៃសរុបចុងក្រោយ
   customerOrSupplierName: string;
   note?: string; // បញ្ជាក់មូលហេតុសម្រាប់ការកាត់ស្តុកផ្សេងៗ

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Product, BusinessInfo } from '../types';
+import { Product, BusinessInfo, UserAccount, UserRole } from '../types';
 import { 
   Plus, Edit2, Trash2, X, Search, Filter, 
   Package, AlertCircle, Calendar as CalendarIcon, 
@@ -13,16 +13,20 @@ interface InventoryProps {
   onUpdate: (p: Product) => void;
   onDelete: (id: string) => void;
   businessInfo: BusinessInfo;
+  searchTerm: string;
+  currentUser: UserAccount | null;
 }
 
-const Inventory: React.FC<InventoryProps> = ({ products, onAdd, onUpdate, onDelete, businessInfo }) => {
+const Inventory: React.FC<InventoryProps> = ({ products, onAdd, onUpdate, onDelete, businessInfo, searchTerm, currentUser }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ទាំងអស់');
   const [showOnlyLowStock, setShowOnlyLowStock] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   const formatPrice = (amount: number) => {
     const formatted = amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -57,10 +61,26 @@ const Inventory: React.FC<InventoryProps> = ({ products, onAdd, onUpdate, onDele
                             p.sku.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = selectedCategory === 'ទាំងអស់' || p.category === selectedCategory;
       const isLowStock = p.stock <= (p.lowStockThreshold ?? 5);
+      
+      let matchesDate = true;
+      if (p.createdAt) {
+        const itemDate = new Date(p.createdAt);
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          if (itemDate < start) matchesDate = false;
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          if (itemDate > end) matchesDate = false;
+        }
+      }
+
       if (showOnlyLowStock && !isLowStock) return false;
-      return matchesSearch && matchesCategory;
+      return matchesSearch && matchesCategory && matchesDate;
     });
-  }, [products, searchTerm, selectedCategory, showOnlyLowStock]);
+  }, [products, searchTerm, selectedCategory, showOnlyLowStock, startDate, endDate]);
 
   const exportToCSV = () => {
     const headers = ['ឈ្មោះទំនិញ', 'លេខកូដ (Code)', 'ប្រភេទ', 'ស្តុក', 'ខ្នាត', 'តម្លៃទិញ', 'តម្លៃលក់'];
@@ -89,7 +109,7 @@ const Inventory: React.FC<InventoryProps> = ({ products, onAdd, onUpdate, onDele
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingProduct) onUpdate({ ...editingProduct, ...formData } as Product);
-    else onAdd({ ...formData, id: Math.random().toString(36).substr(2, 9) } as Product);
+    else onAdd({ ...formData, id: Math.random().toString(36).substr(2, 9), createdAt: new Date().toISOString() } as Product);
     setIsModalOpen(false);
   };
 
@@ -132,17 +152,7 @@ const Inventory: React.FC<InventoryProps> = ({ products, onAdd, onUpdate, onDele
       </div>
 
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex flex-wrap gap-4">
-          <div className="relative flex-1 min-w-[300px]">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="ស្វែងរកតាមឈ្មោះ ឬ លេខកូដ..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-blue-500 transition-all"
-            />
-          </div>
+        <div className="p-6 border-b border-slate-100 flex flex-wrap gap-4 items-center">
           <select 
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
@@ -158,7 +168,53 @@ const Inventory: React.FC<InventoryProps> = ({ products, onAdd, onUpdate, onDele
           >
             ជិតអស់ស្តុក
           </button>
+          
+          <button 
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border ${
+              showFilters || startDate || endDate 
+              ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-100' 
+              : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+            តម្រងកាលបរិច្ឆេទ
+          </button>
+
+          {(startDate || endDate) && (
+            <button 
+              onClick={() => { setStartDate(''); setEndDate(''); }}
+              className="p-3 bg-slate-100 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          )}
         </div>
+
+        {showFilters && (
+          <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 animate-in slide-in-from-top-2 duration-300">
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ចាប់ពី (From):</label>
+                <input 
+                  type="date" 
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ដល់ (To):</label>
+                <input 
+                  type="date" 
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -206,7 +262,9 @@ const Inventory: React.FC<InventoryProps> = ({ products, onAdd, onUpdate, onDele
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => { setEditingProduct(p); setFormData(p); setIsModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title="កែប្រែ"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => { setProductToDelete(p); setIsDeleteModalOpen(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="លុប"><Trash2 className="w-4 h-4" /></button>
+                        {currentUser?.role === UserRole.ADMIN && (
+                          <button onClick={() => { setProductToDelete(p); setIsDeleteModalOpen(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="លុប"><Trash2 className="w-4 h-4" /></button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -4,21 +4,122 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ប្រព័ន្ធគ្រប់គ្រងស្តុក</title>
+    <title>ប្រព័ន្ធគ្រប់គ្រងស្តុក - រតនា ផលិតសំបកដប</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@300;400;500;600;700&family=Freehand&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@300;400;500;600;700&family=Moul&family=Hanuman:wght@100;300;400;700;900&family=Noto+Sans+Khmer:wght@100;300;400;700;900&display=swap" rel="stylesheet">
+    <!-- PDF Generation Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
-        body {
-            font-family: 'Kantumruy Pro', sans-serif;
-            background-color: #f8fafc;
+        :root {
+            --khmer-font: 'Noto Sans Khmer', 'Kantumruy Pro', sans-serif;
         }
+
+        body {
+            font-family: var(--khmer-font);
+            background-color: #f1f5f9;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            line-height: 1.6; /* Improved line height for Khmer legibility */
+        }
+
+        /* Titles using Noto Sans Khmer Bold/Black */
+        .font-muol {
+            font-family: 'Noto Sans Khmer', sans-serif;
+            font-weight: 700;
+            line-height: 1.4;
+        }
+        
+        /* Body using Noto Sans Khmer Regular/Medium */
+        .font-content {
+            font-family: 'Noto Sans Khmer', sans-serif;
+            font-weight: 400;
+            line-height: 1.6;
+        }
+
+        /* Utility for Khmer numbers or labels that need to be clear */
+        .kh-label {
+            letter-spacing: 0.02em;
+        }
+
+        /* --- ADVANCED PRINT & PDF RESET --- */
         @media print {
-            .no-print {
+            @page {
+                size: A4;
+                margin: 0mm;
+            }
+
+            html, body {
+                height: auto !important;
+                min-height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background-color: #ffffff !important;
+                overflow: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                font-family: 'Noto Sans Khmer', sans-serif !important;
+            }
+
+            #root {
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+
+            /* Hide everything except the invoice modal's active container */
+            .no-print, aside, header, .main-content-area, .sidebar, .modal-backdrop, nav {
                 display: none !important;
+                visibility: hidden !important;
+                height: 0 !important;
+                width: 0 !important;
+                overflow: hidden !important;
+                position: absolute !important;
             }
-            .print-only {
+
+            .print-container-active {
+                position: relative !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
                 display: block !important;
+                background: white !important;
+                z-index: auto !important;
+                overflow: visible !important;
+                transform: none !important;
+                backdrop-filter: none !important;
             }
+
+            .invoice-card {
+                page-break-after: always !important;
+                page-break-inside: avoid !important;
+                margin: 0 auto !important;
+                box-shadow: none !important;
+                border: none !important;
+                display: flex !important;
+                flex-direction: column !important;
+                width: 210mm !important;
+                min-height: 297mm !important;
+            }
+        }
+
+        /* Global UI Improvements */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
         }
     </style>
 <script type="importmap">

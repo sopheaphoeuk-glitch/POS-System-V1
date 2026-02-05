@@ -1,19 +1,22 @@
 
 import React, { useState, useMemo } from 'react';
 import { Expense, BusinessInfo, UserAccount, UserRole } from '../types';
-import { Plus, Wallet, Trash2, Calendar, Search, X, Filter, RotateCcw, ListFilter, ChevronDown, Hash, MessageSquare } from 'lucide-react';
+import { Plus, Wallet, Trash2, Edit2, Calendar, Search, X, Filter, RotateCcw, ListFilter, ChevronDown, Hash, MessageSquare, Printer } from 'lucide-react';
 
 interface ExpensesProps {
   expenses: Expense[];
   onAddExpense: (e: Expense) => void;
+  onUpdateExpense?: (e: Expense) => void;
   onDeleteExpense: (id: string) => void;
   currentUser: UserAccount | null;
   businessInfo: BusinessInfo;
+  onShowInvoice: (doc: Expense) => void;
+  searchTerm: string;
 }
 
-const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExpense, currentUser, businessInfo }) => {
+const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onUpdateExpense, onDeleteExpense, currentUser, businessInfo, onShowInvoice, searchTerm }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -43,7 +46,6 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
   };
 
   const handleReset = () => {
-    setSearchTerm('');
     setStartDate('');
     setEndDate('');
   };
@@ -52,25 +54,50 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
     e.preventDefault();
     if (!formData.description || !formData.amount) return;
 
-    onAddExpense({
-      id: `EXP-${Date.now()}`,
+    const expenseData: Expense = {
+      id: editingId || `EXP-${Date.now()}`,
       description: formData.description,
       category: formData.category,
       amount: Number(formData.amount),
       date: new Date(formData.date).toISOString(),
       invoiceNumber: formData.invoiceNumber,
       note: formData.note
-    });
+    };
 
+    if (editingId && onUpdateExpense) {
+        onUpdateExpense(expenseData);
+    } else {
+        onAddExpense(expenseData);
+    }
+
+    closeModal();
+    onShowInvoice(expenseData);
+  };
+
+  const handleEdit = (exp: Expense) => {
+    setEditingId(exp.id);
     setFormData({
-      description: '',
-      category: 'ចំណាយទូទៅ',
-      amount: '',
-      date: new Date().toISOString().split('T')[0],
-      invoiceNumber: '',
-      note: ''
+        description: exp.description,
+        category: exp.category,
+        amount: exp.amount.toString(),
+        date: new Date(exp.date).toISOString().split('T')[0],
+        invoiceNumber: exp.invoiceNumber || '',
+        note: exp.note || ''
     });
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
     setIsModalOpen(false);
+    setEditingId(null);
+    setFormData({
+        description: '',
+        category: 'ចំណាយទូទៅ',
+        amount: '',
+        date: new Date().toISOString().split('T')[0],
+        invoiceNumber: '',
+        note: ''
+    });
   };
 
   const filteredExpenses = useMemo(() => {
@@ -119,16 +146,6 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
         <div className="bg-white p-0 rounded-3xl border border-slate-100 shadow-sm col-span-1 md:col-span-2 overflow-hidden">
           <div className="p-6 border-b border-slate-100 space-y-4 bg-slate-50/30">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-xl">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="ស្វែងរកការចំណាយ លេខវិក្កយបត្រ ឬកំណត់សម្គាល់..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-red-500 outline-none transition-all"
-                />
-              </div>
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => setShowFilters(!showFilters)}
@@ -142,7 +159,7 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
                   តម្រង
                   <ChevronDown className={`w-3 h-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
                 </button>
-                {(searchTerm || startDate || endDate) && (
+                {(startDate || endDate) && (
                   <button 
                     onClick={handleReset}
                     className="p-3 bg-slate-100 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"
@@ -197,7 +214,7 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
                   <th className="px-6 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">ប្រភេទ</th>
                   <th className="px-6 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">កាលបរិច្ឆេទ</th>
                   <th className="px-6 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">ទឹកប្រាក់</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right"></th>
+                  <th className="px-6 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">សកម្មភាព</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -232,15 +249,36 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
                       {formatPrice(e.amount)}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      {/* Admin-only Delete Button */}
-                      {currentUser?.role === UserRole.ADMIN && (
+                      <div className="flex items-center justify-end gap-1">
                         <button 
-                          onClick={() => onDeleteExpense(e.id)}
-                          className="p-2.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                          onClick={() => onShowInvoice(e)}
+                          className="flex items-center gap-2 px-3 py-2 bg-white text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all font-bold text-xs border border-red-100 shadow-sm"
+                          title="បោះពុម្ព"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Printer className="w-4 h-4" />
+                          <span className="hidden md:inline text-[10px]">បោះពុម្ព</span>
                         </button>
-                      )}
+                        
+                        {currentUser?.role === UserRole.ADMIN && (
+                          <button 
+                            onClick={() => handleEdit(e)}
+                            className="p-2.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                            title="កែប្រែ"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {currentUser?.role === UserRole.ADMIN && (
+                          <button 
+                            onClick={() => onDeleteExpense(e.id)}
+                            className="p-2.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                            title="លុប"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -292,11 +330,13 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
                     <Wallet className="w-6 h-6" />
                  </div>
                  <div>
-                   <h3 className="text-xl font-black text-slate-800 tracking-tight">បន្ថែមការចំណាយ</h3>
+                   <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                        {editingId ? 'កែប្រែការចំណាយ' : 'បន្ថែមការចំណាយ'}
+                   </h3>
                    <p className="text-xs font-bold text-red-600 uppercase tracking-widest">Expense Logging</p>
                  </div>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors">
+              <button onClick={closeModal} className="p-2 hover:bg-white rounded-full text-slate-400 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -383,7 +423,7 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
               <div className="pt-6 flex gap-4">
                 <button 
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeModal}
                   className="flex-1 px-4 py-3 border border-slate-200 rounded-2xl font-bold text-slate-500 hover:bg-slate-50 transition-all active:scale-95"
                 >
                   បោះបង់
@@ -392,7 +432,7 @@ const Expenses: React.FC<ExpensesProps> = ({ expenses, onAddExpense, onDeleteExp
                   type="submit"
                   className="flex-1 px-4 py-3 bg-red-600 text-white rounded-2xl font-black text-lg hover:bg-red-700 shadow-xl shadow-red-100 transition-all active:scale-[0.98]"
                 >
-                  កត់ត្រាទុក
+                  {editingId ? 'រក្សាទុកការកែប្រែ' : 'កត់ត្រាទុក'}
                 </button>
               </div>
             </form>
